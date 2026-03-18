@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Audio API 이펙터 신디사이저</title>
+    <style>
+        body {
+            background-color: #12121a;
+            color: #fff;
+            font-family: 'Segoe UI', sans-serif;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            user-select: none;
+        }
+        
+        .synth-container {
+            background-color: #1e1e2f;
+            padding: 30px;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+            max-width: 900px;
+        }
+
+        .top-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            border-bottom: 2px solid #2a2a40;
+            padding-bottom: 15px;
+        }
+
+        .controls { display: flex; gap: 20px; }
+        .control-group { display: flex; flex-direction: column; gap: 5px; font-size: 0.9rem; color: #aaa; }
+        select, input[type="range"] { padding: 8px; background: #2a2a40; color: white; border: 1px solid #4facfe; border-radius: 6px; }
+
+        .main-area { display: flex; gap: 30px; }
+
+        /* 건반 영역 */
+        .keyboard-rows { display: flex; flex-direction: column; gap: 12px; }
+        .row { display: flex; justify-content: center; gap: 8px; }
+        
+        .key {
+            width: 65px; height: 85px;
+            background: linear-gradient(145deg, #2c2c44, #1f1f32);
+            border: 2px solid #3a3a5a; border-radius: 10px;
+            color: #888; cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: all 0.05s; box-shadow: 0 5px 10px rgba(0,0,0,0.4);
+        }
+        .key span.pc-key { font-size: 1.3rem; font-weight: bold; color: #ddd; }
+        .key span.note { font-size: 0.75rem; color: #4facfe; margin-top: 5px; }
+        .key.active {
+            background: #4facfe; border-color: #fff; color: #fff;
+            box-shadow: 0 0 15px #4facfe; transform: translateY(4px);
+        }
+        .key.active span { color: #fff; }
+
+        /* 이펙터 패널 */
+        .fx-panel {
+            background: #181825; padding: 20px; border-radius: 12px;
+            border: 1px solid #333; display: flex; flex-direction: column; gap: 15px;
+            min-width: 180px;
+        }
+        .fx-title { font-size: 1rem; font-weight: bold; color: #ff007f; text-align: center; margin: 0; }
+        
+        .fx-btn {
+            background: #222; border: 2px solid #555; border-radius: 8px;
+            color: #777; padding: 12px; cursor: pointer;
+            display: flex; justify-content: space-between; align-items: center;
+            font-weight: bold; transition: all 0.2s;
+        }
+        .fx-btn span.numpad { font-size: 0.7rem; background: #444; padding: 3px 6px; border-radius: 4px; color: #fff; }
+        
+        /* 이펙트별 활성화 색상 */
+        .fx-btn.active[data-fx="delay"] { border-color: #00e5ff; color: #00e5ff; background: rgba(0,229,255,0.1); box-shadow: 0 0 15px rgba(0,229,255,0.4); }
+        .fx-btn.active[data-fx="dist"] { border-color: #ff3366; color: #ff3366; background: rgba(255,51,102,0.1); box-shadow: 0 0 15px rgba(255,51,102,0.4); }
+        .fx-btn.active[data-fx="filter"] { border-color: #00ff88; color: #00ff88; background: rgba(0,255,136,0.1); box-shadow: 0 0 15px rgba(0,255,136,0.4); }
+        .fx-btn.active[data-fx="tremolo"] { border-color: #b055ff; color: #b055ff; background: rgba(176,85,255,0.1); box-shadow: 0 0 15px rgba(176,85,255,0.4); }
+    </style>
+</head>
+<body>
+
+<div class="synth-container">
+    <div class="top-panel">
+        <div>
+            <h2 style="margin: 0; color: #fff;">Numpad FX Synth 🎛️</h2>
+            <p style="margin: 5px 0 0 0; font-size: 0.85rem; color: #888;">한글/영문 상관없이 키보드와 텐키패드를 눌러보세요.</p>
+        </div>
+        <div class="controls">
+            <div class="control-group">
+                <label>Waveform</label>
+                <select id="waveform"><option value="sawtooth">Sawtooth</option><option value="square">Square</option><option value="sine">Sine</option><option value="triangle">Triangle</option></select>
+            </div>
+            <div class="control-group">
+                <label>Master Volume</label>
+                <input type="range" id="volume" min="0" max="1" step="0.05" value="0.5">
+            </div>
+        </div>
+    </div>
+
+    <div class="main-area">
+        <div class="keyboard-rows" id="keyboard-container"></div>
+        
+        <div class="fx-panel">
+            <p class="fx-title">EFFECTS</p>
+            <button class="fx-btn" data-fx="delay" data-code="Numpad1">Delay <span class="numpad">Num 1</span></button>
+            <button class="fx-btn" data-fx="dist" data-code="Numpad2">Distort <span class="numpad">Num 2</span></button>
+            <button class="fx-btn" data-fx="filter" data-code="Numpad3">Filter <span class="numpad">Num 3</span></button>
+            <button class="fx-btn" data-fx="tremolo" data-code="Numpad4">Tremolo <span class="numpad">Num 4</span></button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let audioCtx;
+    let masterVolNode, effectInput;
+    let delayNode, feedbackGain, delayWetGain;
+    let distNode, filterNode, tremoloGain, lfo, lfoGain;
+    let isAudioInitialized = false;
+
+    const activeOscillators = {};
+    const fxState = { delay: false, dist: false, filter: false, tremolo: false };
+    const fxBtns = document.querySelectorAll('.fx-btn');
+
+    // 키보드 매핑 (event.code 기준)
+    const keyMap = {
+        'Digit1': { label: '1', note: 'G5', freq: 783.99 }, 'Digit2': { label: '2', note: 'A5', freq: 880.00 }, 'Digit3': { label: '3', note: 'B5', freq: 987.77 },
+        'Digit4': { label: '4', note: 'C6', freq: 1046.50 }, 'Digit5': { label: '5', note: 'D6', freq: 1174.66 }, 'Digit6': { label: '6', note: 'E6', freq: 1318.51 },
+        'Digit7': { label: '7', note: 'F6', freq: 1396.91 }, 'Digit8': { label: '8', note: 'G6', freq: 1567.98 }, 'Digit9': { label: '9', note: 'A6', freq: 1760.00 },
+        'KeyQ': { label: 'Q', note: 'E4', freq: 329.63 }, 'KeyW': { label: 'W', note: 'F4', freq: 349.23 }, 'KeyE': { label: 'E', note: 'G4', freq: 392.00 },
+        'KeyR': { label: 'R', note: 'A4', freq: 440.00 }, 'KeyT': { label: 'T', note: 'B4', freq: 493.88 }, 'KeyY': { label: 'Y', note: 'C5', freq: 523.25 },
+        'KeyU': { label: 'U', note: 'D5', freq: 587.33 }, 'KeyI': { label: 'I', note: 'E5', freq: 659.25 }, 'KeyO': { label: 'O', note: 'F5', freq: 698.46 },
+        'KeyA': { label: 'A', note: 'C3', freq: 130.81 }, 'KeyS': { label: 'S', note: 'D3', freq: 146.83 }, 'KeyD': { label: 'D', note: 'E3', freq: 164.81 },
+        'KeyF': { label: 'F', note: 'F3', freq: 174.61 }, 'KeyG': { label: 'G', note: 'G3', freq: 196.00 }, 'KeyH': { label: 'H', note: 'A3', freq: 220.00 },
+        'KeyJ': { label: 'J', note: 'B3', freq: 246.94 }, 'KeyK': { label: 'K', note: 'C4', freq: 261.63 }, 'KeyL': { label: 'L', note: 'D4', freq: 293.66 }
+    };
+    const rows = [
+        ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9'],
+        ['KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyY', 'KeyU', 'KeyI', 'KeyO'],
+        ['KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK', 'KeyL']
+    ];
+
+    const container = document.getElementById('keyboard-container');
+    const waveformSelect = document.getElementById('waveform');
+    const volumeSlider = document.getElementById('volume');
+    const keyElements = {};
+
+    // 1. UI 렌더링
+    rows.forEach(rowCodes => {
+        const rowDiv = document.createElement('div');
+        rowDiv.className = 'row';
+        rowCodes.forEach(code => {
+            const data = keyMap[code];
+            const btn = document.createElement('button');
+            btn.className = 'key';
+            btn.innerHTML = `<span class="pc-key">${data.label}</span><span class="note">${data.note}</span>`;
+            
+            const press = (e) => { e.preventDefault(); startNote(code); };
+            const release = (e) => { e.preventDefault(); stopNote(code); };
+            btn.addEventListener('mousedown', press); btn.addEventListener('touchstart', press);
+            btn.addEventListener('mouseup', release); btn.addEventListener('mouseleave', release); btn.addEventListener('touchend', release);
+
+            rowDiv.appendChild(btn);
+            keyElements[code] = btn;
+        });
+        container.appendChild(rowDiv);
+    });
+
+    // 디스토션 커브 생성 함수
+    function makeDistortionCurve(amount) {
+        const k = typeof amount === 'number' ? amount : 50,
+        n_samples = 44100, curve = new Float32Array(n_samples), deg = Math.PI / 180;
+        for (let i = 0; i < n_samples; ++i) {
+            let x = i * 2 / n_samples - 1;
+            curve[i] = (3 + k) * x * 20 * deg / (Math.PI + k * Math.abs(x));
+        }
+        return curve;
+    }
+
+    // 2. 오디오 버스 & 이펙터 초기화 (최초 1회 실행)
+    function initAudioEngine() {
+        if (isAudioInitialized) return;
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        masterVolNode = audioCtx.createGain();
+        masterVolNode.gain.value = volumeSlider.value;
+        masterVolNode.connect(audioCtx.destination);
+        
+        volumeSlider.addEventListener('input', (e) => masterVolNode.gain.value = e.target.value);
+
+        // 이펙트 버스 입력단
+        effectInput = audioCtx.createGain();
+
+        // [이펙터 노드 생성]
+        filterNode = audioCtx.createBiquadFilter();
+        filterNode.type = 'lowpass';
+        filterNode.frequency.value = 24000; // 기본값: 필터 안 걸림 (고음역 끝까지 패스)
+
+        distNode = audioCtx.createWaveShaper();
+        distNode.curve = null; // 기본값: 변형 없음
+        distNode.oversample = '4x';
+
+        tremoloGain = audioCtx.createGain();
+        lfo = audioCtx.createOscillator();
+        lfoGain = audioCtx.createGain();
+        lfo.type = 'sine';
+        lfo.frequency.value = 6; // 떨림 속도 (Hz)
+        lfoGain.gain.value = 0; // 기본값: 떨림 깊이 0
+        lfo.connect(lfoGain);
+        lfoGain.connect(tremoloGain.gain);
+        lfo.start();
+
+        // 딜레이 (병렬 연결을 위해 따로 뺌)
+        delayNode = audioCtx.createDelay();
+        delayNode.delayTime.value = 0.35; // 0.35초 뒤 메아리
+        feedbackGain = audioCtx.createGain();
+        feedbackGain.gain.value = 0.4; // 메아리 반복 횟수(볼륨)
+        delayWetGain = audioCtx.createGain();
+        delayWetGain.gain.value = 0; // 기본값: 딜레이 소리 끔
+
+        delayNode.connect(feedbackGain);
+        feedbackGain.connect(delayNode);
+        delayNode.connect(delayWetGain);
+        delayWetGain.connect(masterVolNode);
+
+        // [라우팅 체인 연결]
+        // 각 건반 -> effectInput -> Filter -> Dist -> Tremolo -> Master
+        //                  └-------> Delay -------------------> Master
+        effectInput.connect(filterNode);
+        filterNode.connect(distNode);
+        distNode.connect(tremoloGain);
+        tremoloGain.connect(masterVolNode);
+        
+        effectInput.connect(delayNode); // 딜레이로도 소리 복사해서 보냄
+
+        isAudioInitialized = true;
+    }
+
+    // 3. 소리 재생 & 정지
+    function startNote(code) {
+        initAudioEngine();
+        if (audioCtx.state === 'suspended') audioCtx.resume();
+        if (activeOscillators[code] || !keyMap[code]) return;
+
+        if (keyElements[code]) keyElements[code].classList.add('active');
+
+        const osc = audioCtx.createOscillator();
+        const noteGain = audioCtx.createGain();
+
+        osc.type = waveformSelect.value;
+        osc.frequency.value = keyMap[code].freq;
+
+        noteGain.gain.setValueAtTime(0, audioCtx.currentTime);
+        noteGain.gain.linearRampToValueAtTime(1, audioCtx.currentTime + 0.03); // Attack
+
+        osc.connect(noteGain);
+        noteGain.connect(effectInput); // 스피커가 아니라 이펙트 버스로 보냄
+        osc.start();
+
+        activeOscillators[code] = { osc, noteGain };
+    }
+
+    function stopNote(code) {
+        const active = activeOscillators[code];
+        if (active) {
+            if (keyElements[code]) keyElements[code].classList.remove('active');
+            const { osc, noteGain } = active;
+            
+            noteGain.gain.setValueAtTime(noteGain.gain.value, audioCtx.currentTime);
+            noteGain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.15); // Release
+            
+            osc.stop(audioCtx.currentTime + 0.15);
+            delete activeOscillators[code];
+        }
+    }
+
+    // 4. 이펙터 토글 제어
+    function toggleEffect(fxType, btnElement) {
+        initAudioEngine();
+        fxState[fxType] = !fxState[fxType];
+        
+        if (fxState[fxType]) btnElement.classList.add('active');
+        else btnElement.classList.remove('active');
+
+        const now = audioCtx.currentTime;
+
+        switch(fxType) {
+            case 'delay':
+                // 딜레이 볼륨을 0.5로 올림
+                delayWetGain.gain.setTargetAtTime(fxState.delay ? 0.5 : 0, now, 0.05);
+                break;
+            case 'dist':
+                // 디스토션 커브 적용
+                distNode.curve = fxState.dist ? makeDistortionCurve(400) : null;
+                break;
+            case 'filter':
+                // 먹먹하게 800Hz 위를 다 깎아버림
+                filterNode.frequency.setTargetAtTime(fxState.filter ? 800 : 24000, now, 0.1);
+                break;
+            case 'tremolo':
+                // LFO(진동) 깊이를 깊게 줌
+                lfoGain.gain.setTargetAtTime(fxState.tremolo ? 0.6 : 0, now, 0.05);
+                break;
+        }
+    }
+
+    // 이펙트 버튼 클릭 이벤트
+    fxBtns.forEach(btn => {
+        btn.addEventListener('click', () => toggleEffect(btn.dataset.fx, btn));
+    });
+
+    // 5. 컴퓨터 키보드 & 텐키 이벤트 리스너
+    window.addEventListener('keydown', (e) => {
+        if (e.repeat) return;
+        
+        // Numpad 이펙터 제어
+        if (e.code.startsWith('Numpad') && parseInt(e.code.slice(-1)) >= 1 && parseInt(e.code.slice(-1)) <= 4) {
+            const btn = document.querySelector(`.fx-btn[data-code="${e.code}"]`);
+            if(btn) toggleEffect(btn.dataset.fx, btn);
+            return;
+        }
+        
+        // 건반 연주 (e.code 사용)
+        startNote(e.code);
+    });
+
+    window.addEventListener('keyup', (e) => {
+        stopNote(e.code);
+    });
+</script>
+</body>
+</html>
